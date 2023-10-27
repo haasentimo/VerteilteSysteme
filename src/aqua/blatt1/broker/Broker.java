@@ -10,9 +10,14 @@ import aqua.blatt1.common.msgtypes.RegisterRequest;
 import aqua.blatt1.common.msgtypes.RegisterResponse;
 
 import java.net.InetSocketAddress;
+import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 public class Broker {
     private final Endpoint endpoint = new Endpoint(4711);
-    private final ClientCollection<InetSocketAddress > clients = new ClientCollection<>();
+    private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
 
     public static void main(String[] args) {
@@ -20,44 +25,69 @@ public class Broker {
         broker.run();
     }
 
-    private void run() {
-        while(true) {
-            Message m = endpoint.blockingReceive();
+    public void run() {
+        var executor = Executors.newFixedThreadPool(10);
+        while (true) {
+            final Message message = endpoint.blockingReceive();
+            if (message != null)
+                executor.execute(new Thread(new BrokerTask(message)));
+        }
+    }
 
-            if (m.getPayload() instanceof RegisterRequest){
-                register(m.getSender());
-            } else if (m.getPayload() instanceof DeregisterRequest){
-                deregister(((DeregisterRequest) m.getPayload()).getId());
-            } else if (m.getPayload() instanceof HandoffRequest){
-                handoffFish(m.getSender(), (HandoffRequest) m.getPayload());
+    private class BrokerTask implements Runnable {
+        private final Message message;
+
+        public BrokerTask(Message message) {
+            this.message = message;
+        }
+
+        @Override
+        public void run() {
+            if (message.getPayload() instanceof RegisterRequest) {
+                register(message.getSender());
+            } else if (message.getPayload() instanceof DeregisterRequest) {
+                deregister(((DeregisterRequest) message.getPayload()).getId());
+            } else if (message.getPayload() instanceof HandoffRequest) {
+                handoffFish(message.getSender(), (HandoffRequest) message.getPayload());
             } else {
                 System.err.println("Unknown message type");
             }
         }
-    }
+        private void register(InetSocketAddress client) {
+            lock.readLock().lock();
+            final String name = "Tank" + (clients.size() + 1);
+            lock.readLock().unlock();
 
-    private void register(InetSocketAddress client){
-        final String name = "Tank" + (clients.size() + 1);
-        clients.add(name, client);
-        endpoint.send(client, new RegisterResponse(name));
-    }
-
-    private void deregister(String name){
-        final int index = clients.indexOf(name);
-        if (index == -1){
-            System.err.println("No Client registered under that name");
-            return;
-        }
-        clients.remove(index);
-    }
-
-    private void handoffFish(InetSocketAddress client, HandoffRequest request){
-        final int index = clients.indexOf(client);
-        if (request.getFish().getDirection() == Direction.LEFT){
-            endpoint.send(clients.getLeftNeighborOf(index), request);
-        } else {
-            endpoint.send(clients.getRightNeighborOf(index), request);
+            lock.writeLock().lock();
+            clients.add(name, client);
+            lock.writeLock().unlock();
+            endpoint.send(client, new RegisterResponse(name));
         }
 
+        private void deregister(String name) {
+            lock.readLock().lock();
+            final int index = clients.indexOf(name);
+            lock.readLock().unlock();
+
+            if (index == -1) {
+                System.err.println("No Client registered under that name");
+                return;
+            }
+
+            lock.writeLock().lock();
+            clients.remove(index);
+            lock.writeLock().unlock();
+        }
+
+        private void handoffFish(InetSocketAddress client, HandoffRequest request) {
+            lock.readLock().lock();
+            final int index = clients.indexOf(client);
+            if (request.getFish().getDirection() == Direction.LEFT) {
+                endpoint.send(clients.getLeftNeighborOf(index), request);
+            } else {
+                endpoint.send(clients.getRightNeighborOf(index), request);
+            }
+            lock.readLock().unlock();
+        }
     }
 }

@@ -1,6 +1,8 @@
 package aqua.blatt1.broker;
 
 import aqua.blatt1.common.Direction;
+import aqua.blatt2.PoisonPill;
+import aqua.blatt2.Poisoner;
 import messaging.Endpoint;
 import messaging.Message;
 
@@ -18,6 +20,7 @@ public class Broker {
     private final Endpoint endpoint = new Endpoint(4711);
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private volatile boolean stopRequested = false;
 
 
     public static void main(String[] args) {
@@ -26,12 +29,29 @@ public class Broker {
     }
 
     public void run() {
+        System.out.println("Broker started");
+
         var executor = Executors.newFixedThreadPool(10);
-        while (true) {
+
+        new Thread(() -> Poisoner.main(null)).start();
+//        new Thread(() -> {
+//            final int confirmed = JOptionPane.showConfirmDialog(
+//                    null,
+//                    "Close broker?",
+//                    "Broker",
+//                    JOptionPane.OK_CANCEL_OPTION
+//            );
+//            if (confirmed == JOptionPane.OK_OPTION)
+//                stopRequested = true;
+//        }).start();
+
+        while (!stopRequested) {
             final Message message = endpoint.blockingReceive();
             if (message != null)
                 executor.execute(new Thread(new BrokerTask(message)));
         }
+        System.out.println("Broker stopped");
+        executor.shutdown();
     }
 
     private class BrokerTask implements Runnable {
@@ -49,10 +69,13 @@ public class Broker {
                 deregister(((DeregisterRequest) message.getPayload()).getId());
             } else if (message.getPayload() instanceof HandoffRequest) {
                 handoffFish(message.getSender(), (HandoffRequest) message.getPayload());
+            } else if (message.getPayload() instanceof PoisonPill) {
+                stopRequested = true;
             } else {
                 System.err.println("Unknown message type");
             }
         }
+
         private void register(InetSocketAddress client) {
             lock.readLock().lock();
             final String name = "Tank" + (clients.size() + 1);

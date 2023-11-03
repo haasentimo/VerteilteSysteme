@@ -1,15 +1,11 @@
 package aqua.blatt1.broker;
 
 import aqua.blatt1.common.Direction;
+import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.PoisonPill;
 import aqua.blatt2.Poisoner;
 import messaging.Endpoint;
 import messaging.Message;
-
-import aqua.blatt1.common.msgtypes.DeregisterRequest;
-import aqua.blatt1.common.msgtypes.HandoffRequest;
-import aqua.blatt1.common.msgtypes.RegisterRequest;
-import aqua.blatt1.common.msgtypes.RegisterResponse;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
@@ -34,16 +30,6 @@ public class Broker {
         var executor = Executors.newFixedThreadPool(10);
 
         new Thread(() -> Poisoner.main(null)).start();
-//        new Thread(() -> {
-//            final int confirmed = JOptionPane.showConfirmDialog(
-//                    null,
-//                    "Close broker?",
-//                    "Broker",
-//                    JOptionPane.OK_CANCEL_OPTION
-//            );
-//            if (confirmed == JOptionPane.OK_OPTION)
-//                stopRequested = true;
-//        }).start();
 
         while (!stopRequested) {
             final Message message = endpoint.blockingReceive();
@@ -67,8 +53,6 @@ public class Broker {
                 register(message.getSender());
             } else if (message.getPayload() instanceof DeregisterRequest) {
                 deregister(((DeregisterRequest) message.getPayload()).getId());
-            } else if (message.getPayload() instanceof HandoffRequest) {
-                handoffFish(message.getSender(), (HandoffRequest) message.getPayload());
             } else if (message.getPayload() instanceof PoisonPill) {
                 stopRequested = true;
             } else {
@@ -84,7 +68,16 @@ public class Broker {
             lock.writeLock().lock();
             clients.add(name, client);
             lock.writeLock().unlock();
+
+            lock.readLock().lock();
+            final InetSocketAddress leftNeighbor = clients.getLeftNeighborOf(clients.indexOf(name));
+            final InetSocketAddress rightNeighbor = clients.getRightNeighborOf(clients.indexOf(name));
+            lock.readLock().unlock();
+
             endpoint.send(client, new RegisterResponse(name));
+            endpoint.send(client, new NeighborUpdate(leftNeighbor, rightNeighbor));
+            endpoint.send(leftNeighbor, new NeighborUpdate(null, client));
+            endpoint.send(rightNeighbor, new NeighborUpdate(client, null));
         }
 
         private void deregister(String name) {
@@ -97,20 +90,17 @@ public class Broker {
                 return;
             }
 
+            lock.readLock().lock();
+            final InetSocketAddress leftNeighbor = clients.getLeftNeighborOf(clients.indexOf(name));
+            final InetSocketAddress rightNeighbor = clients.getRightNeighborOf(clients.indexOf(name));
+            lock.readLock().unlock();
+
             lock.writeLock().lock();
             clients.remove(index);
             lock.writeLock().unlock();
-        }
 
-        private void handoffFish(InetSocketAddress client, HandoffRequest request) {
-            lock.readLock().lock();
-            final int index = clients.indexOf(client);
-            if (request.getFish().getDirection() == Direction.LEFT) {
-                endpoint.send(clients.getLeftNeighborOf(index), request);
-            } else {
-                endpoint.send(clients.getRightNeighborOf(index), request);
-            }
-            lock.readLock().unlock();
+            endpoint.send(leftNeighbor, new NeighborUpdate(null, rightNeighbor));
+            endpoint.send(rightNeighbor, new NeighborUpdate(leftNeighbor, null));
         }
     }
 }

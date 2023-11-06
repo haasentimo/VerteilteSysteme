@@ -1,11 +1,7 @@
 package aqua.blatt1.client;
 
 import java.net.InetSocketAddress;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Observable;
-import java.util.Random;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -24,6 +20,8 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 	protected final ClientCommunicator.ClientForwarder forwarder;
 	protected InetSocketAddress leftNeighbor;
 	protected InetSocketAddress rightNeighbor;
+	protected volatile boolean hasToken = false;
+	protected Timer timer = new Timer();
 
 	public TankModel(ClientCommunicator.ClientForwarder forwarder) {
 		this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -71,11 +69,13 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 			fish.update();
 
 			if (fish.hitsEdge())
-				if (fish.getDirection() == Direction.LEFT)
-					forwarder.handOff(fish, leftNeighbor);
+				if (hasToken())
+					if (fish.getDirection() == Direction.LEFT)
+						forwarder.handOff(fish, leftNeighbor);
+					else
+						forwarder.handOff(fish, rightNeighbor);
 				else
-					forwarder.handOff(fish, rightNeighbor);
-
+					fish.reverse();
 
 			if (fish.disappears())
 				it.remove();
@@ -110,6 +110,25 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 			this.leftNeighbor = leftNeighbor;
 		if(rightNeighbor != null)
 			this.rightNeighbor = rightNeighbor;
+	}
+
+	public boolean hasToken(){
+		return hasToken;
+	}
+
+	public synchronized void receiveToken(){
+		final int DELAY = 2000;
+
+		if(!hasToken){
+			timer.schedule(new TimerTask() {
+				@Override
+				public void run() {
+					hasToken = false;
+					forwarder.handOffToken(rightNeighbor);
+				}
+			}, DELAY);
+		}
+		this.hasToken = true;
 	}
 
 }

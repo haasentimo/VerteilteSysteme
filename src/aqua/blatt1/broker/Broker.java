@@ -62,8 +62,9 @@ public class Broker {
 
         private void register(InetSocketAddress client) {
             lock.readLock().lock();
-            final String name = "Tank" + (clients.size() + 1);
+            final int index = clients.size() + 1;
             lock.readLock().unlock();
+            final String name = "Tank" + index;
 
             lock.writeLock().lock();
             clients.add(name, client);
@@ -78,6 +79,11 @@ public class Broker {
             endpoint.send(client, new NeighborUpdate(leftNeighbor, rightNeighbor));
             endpoint.send(leftNeighbor, new NeighborUpdate(null, client));
             endpoint.send(rightNeighbor, new NeighborUpdate(client, null));
+
+
+            if (index == 1) {
+                endpoint.send(client, new Token());
+            }
         }
 
         private void deregister(String name) {

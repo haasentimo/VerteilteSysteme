@@ -6,8 +6,7 @@ import java.awt.event.MouseEvent;
 import java.util.Observable;
 import java.util.Observer;
 
-import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 
 import aqua.blatt1.common.FishModel;
 
@@ -69,5 +68,16 @@ public class TankView extends JPanel implements Observer {
 	@Override
 	public void update(Observable o, Object arg) {
 		SwingUtilities.invokeLater(repaintRunnable);
+		SwingUtilities.invokeLater(
+				() -> {
+					if (tankModel.globalSnapshot != null) {
+						var res = tankModel.globalSnapshot;
+						tankModel.globalSnapshot = null;
+						JOptionPane.showMessageDialog(this, """
+                                %d fishes in global Snapshot:
+                                %s""".formatted(res.size(), res), "Global Snapshot", JOptionPane.INFORMATION_MESSAGE);
+					}
+				}
+		);
 	}
 }

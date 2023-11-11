@@ -1,6 +1,8 @@
 package aqua.blatt1.client;
 
 import java.net.InetSocketAddress;
+import java.util.HashSet;
+import java.util.Set;
 
 import aqua.blatt1.common.msgtypes.*;
 import messaging.Endpoint;
@@ -37,6 +39,16 @@ public class ClientCommunicator {
         public void handOffToken(InetSocketAddress receiver) {
             endpoint.send(receiver, new Token());
         }
+
+        public void sendSnapshotMarker(InetSocketAddress... receivers) {
+            for (InetSocketAddress receiver : receivers) {
+                endpoint.send(receiver, new SnapshotMarker());
+            }
+        }
+
+        public void sendSnapshotResult(Set<FishModel> snapshot, InetSocketAddress receiver) {
+            endpoint.send(receiver, new SnapshotResult(new HashSet<>(snapshot)));
+        }
     }
 
     public class ClientReceiver extends Thread {
@@ -52,7 +64,7 @@ public class ClientCommunicator {
                 Message msg = endpoint.blockingReceive();
 
                 if (msg.getPayload() instanceof RegisterResponse)
-                    tankModel.onRegistration(((RegisterResponse) msg.getPayload()).getId());
+                    tankModel.onRegistration(((RegisterResponse) msg.getPayload()).id());
 
                 if (msg.getPayload() instanceof HandoffRequest)
                     tankModel.receiveFish(((HandoffRequest) msg.getPayload()).getFish());
@@ -62,6 +74,12 @@ public class ClientCommunicator {
                             ((NeighborUpdate) msg.getPayload()).getRightNeighbor());
                 if (msg.getPayload() instanceof Token)
                     tankModel.receiveToken();
+
+                if (msg.getPayload() instanceof SnapshotMarker)
+                    tankModel.receiveSnapshotMarker(msg.getSender());
+
+                if (msg.getPayload() instanceof SnapshotResult)
+                    tankModel.receiveSnapshotResult(((SnapshotResult) msg.getPayload()).snapshotResult());
             }
             System.out.println("Receiver stopped.");
         }

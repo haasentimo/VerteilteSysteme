@@ -1,6 +1,5 @@
 package aqua.blatt1.broker;
 
-import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.PoisonPill;
 import aqua.blatt2.Poisoner;
@@ -8,6 +7,8 @@ import messaging.Endpoint;
 import messaging.Message;
 
 import java.net.InetSocketAddress;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -16,6 +17,7 @@ public class Broker {
     private final Endpoint endpoint = new Endpoint(4711);
     private final ClientCollection<InetSocketAddress> clients = new ClientCollection<>();
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Map<String, InetSocketAddress> nameResolutionTable = new HashMap<>();
     private volatile boolean stopRequested = false;
 
 
@@ -55,6 +57,12 @@ public class Broker {
                 deregister(((DeregisterRequest) message.getPayload()).getId());
             } else if (message.getPayload() instanceof PoisonPill) {
                 stopRequested = true;
+            } else if (message.getPayload() instanceof NameResolutionRequest) {
+                final NameResolutionRequest request = (NameResolutionRequest) message.getPayload();
+                endpoint.send(
+                        message.getSender(),
+                        new NameResolutionResponse(nameResolutionTable.get(request.tankId()), request.reqId())
+                );
             } else {
                 System.err.println("Unknown message type");
             }
@@ -76,6 +84,7 @@ public class Broker {
             lock.readLock().unlock();
 
             endpoint.send(client, new RegisterResponse(name));
+            nameResolutionTable.put(name, client);
             endpoint.send(client, new NeighborUpdate(leftNeighbor, rightNeighbor));
             endpoint.send(leftNeighbor, new NeighborUpdate(null, client));
             endpoint.send(rightNeighbor, new NeighborUpdate(client, null));

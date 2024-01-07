@@ -28,8 +28,8 @@ public class ClientCommunicator {
             endpoint.send(broker, new RegisterRequest());
         }
 
-        public void deregister(String id) {
-            endpoint.send(broker, new DeregisterRequest(id));
+        public void deregister(String id, boolean hadToken) {
+            endpoint.send(broker, new DeregisterRequest(id, hadToken));
         }
 
         public void handOff(FishModel fish, InetSocketAddress receiver) {
@@ -76,7 +76,8 @@ public class ClientCommunicator {
                 Message msg = endpoint.blockingReceive();
 
                 if (msg.getPayload() instanceof RegisterResponse)
-                    tankModel.onRegistration(((RegisterResponse) msg.getPayload()).id());
+                    tankModel.onRegistration(((RegisterResponse) msg.getPayload()).id(),
+                            ((RegisterResponse) msg.getPayload()).leaseDuration());
 
                 if (msg.getPayload() instanceof HandoffRequest)
                     tankModel.receiveFish(((HandoffRequest) msg.getPayload()).getFish());
